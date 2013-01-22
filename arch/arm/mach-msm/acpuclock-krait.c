@@ -925,6 +925,60 @@ static void __init bus_init(const struct l2_level *l2_level)
 		dev_err(drv.dev, "initial bandwidth req failed (%d)\n", ret);
 }
 
+#ifdef CONFIG_USERSPACE_VOLTAGE_CONTROL
+
+int get_num_freqs(void)
+{
+	int i;
+	int count = 0;
+	
+	for (i = 0; drv.acpu_freq_tbl[i].use_for_scaling; i++)
+		count++;
+		
+	return count;
+}
+
+ssize_t acpuclk_get_vdd_levels_str(char *buf) 
+{
+
+	int i, len = 0;
+
+	if (buf) {
+		for (i = 0; drv.acpu_freq_tbl[i].speed.khz; i++) {
+			if (drv.acpu_freq_tbl[i].use_for_scaling) {
+				len += sprintf(buf + len, "%lumhz: %i mV\n", drv.acpu_freq_tbl[i].speed.khz/1000,
+						drv.acpu_freq_tbl[i].vdd_core/1000 );
+			}
+		}
+	}
+	return len;
+}
+
+ssize_t acpuclk_set_vdd(char *buf) 
+{
+	unsigned int cur_volt;
+	char size_cur[get_num_freqs()];
+	int i;
+    int ret = 0;
+
+	if (!buf)
+		return -EINVAL;
+		
+	for (i = 0; i < ARRAY_SIZE(size_cur); i++) {
+		ret = sscanf(buf, "%d", &cur_volt);
+
+		if (ret != 1)
+			return -EINVAL;
+				
+		drv.acpu_freq_tbl[i].vdd_core = cur_volt*1000;
+			
+		ret = sscanf(buf, "%s", size_cur);
+		buf += (strlen(size_cur)+1);
+	}
+	return ret;
+}
+#endif
+
 #ifdef CONFIG_CPU_FREQ_MSM
 static struct cpufreq_frequency_table freq_table[NR_CPUS][35];
 
