@@ -27,6 +27,7 @@
 #include <linux/workqueue.h>
 #include <linux/debugfs.h>
 #include <linux/slab.h>
+#include <linux/blx.h>
 #include <linux/mfd/pm8xxx/batt-alarm.h>
 
 #include <mach/msm_xo.h>
@@ -1404,6 +1405,7 @@ static enum power_supply_property msm_batt_power_props[] = {
 	POWER_SUPPLY_PROP_CURRENT_NOW,
 	POWER_SUPPLY_PROP_TEMP,
 	POWER_SUPPLY_PROP_ENERGY_FULL,
+	POWER_SUPPLY_PROP_CHARGE_NOW,
 };
 
 static int get_prop_battery_uvolts(struct pm8921_chg_chip *chip)
@@ -1489,6 +1491,20 @@ static int get_prop_batt_fcc(struct pm8921_chg_chip *chip)
 	return rc;
 }
 
+static int get_prop_batt_charge_now(struct pm8921_chg_chip *chip)
+{
+	int rc;
+	int cc_uah;
+
+	rc = pm8921_bms_cc_uah(&cc_uah);
+
+	if (rc == 0)
+		return cc_uah;
+
+	pr_err("unable to get batt fcc rc = %d\n", rc);
+	return rc;
+}
+
 static int get_prop_batt_health(struct pm8921_chg_chip *chip)
 {
 	int temp;
@@ -1562,14 +1578,18 @@ static int get_prop_batt_status(struct pm8921_chg_chip *chip)
 	}
 
 	if (chip->eoc_check_soc) {
-		if (get_prop_batt_capacity(chip) == 100) {
+    #ifdef CONFIG_BLX
+        if (get_prop_batt_capacity(chip) >= get_charginglimit())
+    #else
+            if (get_prop_batt_capacity(chip) == 100) 
+    #endif
 			if (batt_state == POWER_SUPPLY_STATUS_CHARGING)
 				batt_state = POWER_SUPPLY_STATUS_FULL;
-		} else {
+    }   else {
 			if (batt_state == POWER_SUPPLY_STATUS_FULL)
 				batt_state = POWER_SUPPLY_STATUS_CHARGING;
 		}
-	}
+	
 
 	pr_debug("batt_state = %d fsm_state = %d \n",batt_state, fsm_state);
 	return batt_state;
@@ -1645,6 +1665,9 @@ static int pm_batt_power_get_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_ENERGY_FULL:
 		val->intval = get_prop_batt_fcc(chip) * 1000;
+		break;
+	case POWER_SUPPLY_PROP_CHARGE_NOW:
+		val->intval = get_prop_batt_charge_now(chip);
 		break;
 	default:
 		return -EINVAL;
@@ -3396,7 +3419,11 @@ static void eoc_worker(struct work_struct *work)
 
 	if (chip->eoc_check_soc) {
 		percent_soc = get_prop_batt_capacity(chip);
-		if (percent_soc == 100)
+    #ifdef CONFIG_BLX
+        if (percent_soc >= get_charginglimit())
+    #else
+            if (percent_soc == 100)
+    #endif
 			count = CONSECUTIVE_COUNT;
 	}
 
@@ -3408,11 +3435,18 @@ static void eoc_worker(struct work_struct *work)
 
 		if (is_ext_charging(chip))
 			chip->ext_charge_done = true;
-
-		if (chip->is_bat_warm || chip->is_bat_cool)
-			chip->bms_notify.is_battery_full = 0;
-		else
-			chip->bms_notify.is_battery_full = 1;
+    #ifdef CONFIG_BLX
+        //if (chip->is_bat_warm || chip->is_bat_cool)
+          //  chip->bms_notify.is_battery_full = 0;
+        //else
+          //  chip->bms_notify.is_battery_full = 1;
+    #else
+        if (chip->is_bat_warm || chip->is_bat_cool)
+          chip->bms_notify.is_battery_full = 0;
+        else
+          chip->bms_notify.is_battery_full = 1;
+     #endif
+        
 		/* declare end of charging by invoking chgdone interrupt */
 		chgdone_irq_handler(chip->pmic_chg_irq[CHGDONE_IRQ], chip);
 		wake_unlock(&chip->eoc_wake_lock);
