@@ -941,8 +941,8 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	}
 
 	/* check for frequency boost */
-	if ((dbs_tuners_ins.boosted || lge_boosted)
-	    && policy->cur < dbs_tuners_ins.boostfreq) {
+	if (dbs_tuners_ins.boosted &&
+ + 		      freq_next < dbs_tuners_ins.boostfreq) {
 		dbs_freq_increase(policy, dbs_tuners_ins.boostfreq);
 		return;
 	}
